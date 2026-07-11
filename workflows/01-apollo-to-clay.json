@@ -1,0 +1,239 @@
+{
+  "name": "01 — Apollo → Clay (Daily Lead Sourcing)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 8AM IST Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "icp_name",
+              "value": "Primary ICP"
+            }
+          ],
+          "number": [
+            {
+              "name": "page",
+              "value": 1
+            },
+            {
+              "name": "per_page",
+              "value": 25
+            }
+          ]
+        }
+      },
+      "id": "set-search-params",
+      "name": "Set Search Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/v1/mixed_people/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"page\": {{ $json.page }},\n  \"per_page\": {{ $json.per_page }},\n  \"person_titles\": [\"CEO\", \"CTO\", \"Founder\", \"VP of Engineering\", \"Head of Product\"],\n  \"person_seniorities\": [\"c_suite\", \"vp\", \"director\", \"founder\"],\n  \"organization_num_employees_ranges\": [\"11,50\", \"51,200\", \"201,500\"],\n  \"person_locations\": [\"{{TARGET_REGIONS}}\"],\n  \"contact_email_status\": [\"verified\"]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "apollo-search",
+      "name": "Apollo — Search Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{APOLLO_CREDENTIAL_ID}}",
+          "name": "apollo-api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract people from Apollo response and normalize\nconst people = $input.first().json.people || [];\n\nreturn people.map(person => ({\n  json: {\n    first_name: person.first_name || '',\n    last_name: person.last_name || '',\n    email: person.email || '',\n    title: person.title || '',\n    linkedin_url: person.linkedin_url || '',\n    organization_name: person.organization?.name || '',\n    organization_website_url: person.organization?.website_url || '',\n    organization_num_employees: person.organization?.estimated_num_employees || 0,\n    organization_industry: person.organization?.industry || '',\n    organization_short_description: person.organization?.short_description || '',\n    organization_country: person.organization?.country || '',\n    organization_city: person.organization?.city || '',\n    organization_latest_funding_stage: person.organization?.latest_funding_stage || '',\n    organization_total_funding: person.organization?.total_funding || 0,\n    apollo_id: person.id || '',\n    source: 'apollo',\n    sourced_at: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "normalize-data",
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "email-check",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-valid-emails",
+      "name": "Filter — Has Valid Email",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [{\n    \"filters\": [{\n      \"propertyName\": \"email\",\n      \"operator\": \"EQ\",\n      \"value\": \"{{ $json.email }}\"\n    }]\n  }],\n  \"limit\": 1\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "hubspot-dedup-check",
+      "name": "HubSpot — Check Existing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{HUBSPOT_CREDENTIAL_ID}}",
+          "name": "hubspot-private-app"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-new",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-new-only",
+      "name": "Filter — New Leads Only",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.CLAY_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"first_name\": \"{{ $('Normalize Lead Data').item.json.first_name }}\",\n  \"last_name\": \"{{ $('Normalize Lead Data').item.json.last_name }}\",\n  \"email\": \"{{ $('Normalize Lead Data').item.json.email }}\",\n  \"title\": \"{{ $('Normalize Lead Data').item.json.title }}\",\n  \"linkedin_url\": \"{{ $('Normalize Lead Data').item.json.linkedin_url }}\",\n  \"organization_name\": \"{{ $('Normalize Lead Data').item.json.organization_name }}\",\n  \"organization_website_url\": \"{{ $('Normalize Lead Data').item.json.organization_website_url }}\",\n  \"organization_num_employees\": {{ $('Normalize Lead Data').item.json.organization_num_employees }},\n  \"organization_industry\": \"{{ $('Normalize Lead Data').item.json.organization_industry }}\",\n  \"organization_short_description\": \"{{ $('Normalize Lead Data').item.json.organization_short_description }}\",\n  \"organization_country\": \"{{ $('Normalize Lead Data').item.json.organization_country }}\",\n  \"organization_latest_funding_stage\": \"{{ $('Normalize Lead Data').item.json.organization_latest_funding_stage }}\"\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "send-to-clay",
+      "name": "Send to Clay Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "rate-limit-wait",
+      "name": "Rate Limit — Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1760, 0]
+    }
+  ],
+  "connections": {
+    "Daily 8AM IST Trigger": {
+      "main": [[{"node": "Set Search Parameters", "type": "main", "index": 0}]]
+    },
+    "Set Search Parameters": {
+      "main": [[{"node": "Apollo — Search Leads", "type": "main", "index": 0}]]
+    },
+    "Apollo — Search Leads": {
+      "main": [[{"node": "Normalize Lead Data", "type": "main", "index": 0}]]
+    },
+    "Normalize Lead Data": {
+      "main": [[{"node": "Filter — Has Valid Email", "type": "main", "index": 0}]]
+    },
+    "Filter — Has Valid Email": {
+      "main": [[{"node": "HubSpot — Check Existing", "type": "main", "index": 0}]]
+    },
+    "HubSpot — Check Existing": {
+      "main": [[{"node": "Filter — New Leads Only", "type": "main", "index": 0}]]
+    },
+    "Filter — New Leads Only": {
+      "main": [[{"node": "Send to Clay Webhook", "type": "main", "index": 0}]]
+    },
+    "Send to Clay Webhook": {
+      "main": [[{"node": "Rate Limit — Wait 2s", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    {"name": "sales-automation"},
+    {"name": "lead-gen"}
+  ]
+}

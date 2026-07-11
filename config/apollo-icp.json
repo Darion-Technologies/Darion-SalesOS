@@ -1,0 +1,129 @@
+{
+  "icp_profiles": [
+    {
+      "name": "Primary ICP — Tech Decision Makers",
+      "description": "C-suite and VP-level decision makers at growing tech companies who need our services",
+      "search_parameters": {
+        "person_titles": [
+          "CEO",
+          "CTO",
+          "COO",
+          "VP of Engineering",
+          "VP of Technology",
+          "VP of Product",
+          "Head of Engineering",
+          "Head of Product",
+          "Head of Technology",
+          "Director of Engineering",
+          "Director of Technology",
+          "Founder",
+          "Co-Founder",
+          "Managing Director"
+        ],
+        "person_seniorities": [
+          "c_suite",
+          "vp",
+          "director",
+          "founder"
+        ],
+        "organization_num_employees_ranges": [
+          "11,50",
+          "51,200",
+          "201,500"
+        ],
+        "person_locations": [
+          "{{TARGET_REGIONS}}"
+        ],
+        "organization_industry_tag_ids": [
+          "{{INDUSTRY_IDS}}"
+        ],
+        "q_organization_keyword_tags": [
+          "{{KEYWORD_TAGS}}"
+        ],
+        "contact_email_status": [
+          "verified"
+        ],
+        "organization_latest_funding_stage_cd": [],
+        "revenue_range": {
+          "min": null,
+          "max": null
+        }
+      },
+      "export_fields": [
+        "first_name",
+        "last_name",
+        "email",
+        "title",
+        "linkedin_url",
+        "organization_name",
+        "organization_website_url",
+        "organization_linkedin_url",
+        "organization_num_employees",
+        "organization_industry",
+        "organization_short_description",
+        "organization_city",
+        "organization_country",
+        "organization_founded_year",
+        "organization_latest_funding_stage",
+        "organization_total_funding"
+      ],
+      "api_request_template": {
+        "method": "POST",
+        "url": "https://api.apollo.io/v1/mixed_people/search",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Api-Key": "{{APOLLO_API_KEY}}"
+        },
+        "body": {
+          "page": 1,
+          "per_page": 25,
+          "person_titles": ["CEO", "CTO", "Founder", "VP of Engineering"],
+          "person_seniorities": ["c_suite", "vp", "director", "founder"],
+          "organization_num_employees_ranges": ["11,50", "51,200", "201,500"],
+          "person_locations": ["{{TARGET_REGIONS}}"],
+          "contact_email_status": ["verified"]
+        }
+      }
+    },
+    {
+      "name": "Secondary ICP — Startup Founders",
+      "description": "Early-stage startup founders who are likely to need services immediately",
+      "search_parameters": {
+        "person_titles": [
+          "Founder",
+          "Co-Founder",
+          "CEO"
+        ],
+        "person_seniorities": [
+          "founder",
+          "c_suite"
+        ],
+        "organization_num_employees_ranges": [
+          "1,10",
+          "11,50"
+        ],
+        "person_locations": [
+          "{{TARGET_REGIONS}}"
+        ],
+        "organization_latest_funding_stage_cd": [
+          "seed",
+          "pre_seed",
+          "series_a"
+        ],
+        "contact_email_status": [
+          "verified"
+        ]
+      }
+    }
+  ],
+  "deduplication_rules": {
+    "unique_key": "email",
+    "check_against": ["hubspot_contacts"],
+    "skip_if_contacted_within_days": 90
+  },
+  "export_settings": {
+    "max_leads_per_day": 50,
+    "max_leads_per_batch": 25,
+    "rate_limit_delay_ms": 2000
+  }
+}

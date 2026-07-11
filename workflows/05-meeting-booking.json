@@ -1,0 +1,77 @@
+{
+  "name": "05 — Meeting Booking → Google Meet",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "book-meeting"},
+      "id": "webhook-meeting",
+      "name": "Webhook — Book Meeting",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json.body;\nconst startDate = new Date(data.meeting_datetime);\nconst endDate = new Date(startDate.getTime() + 30 * 60000);\nconst requestId = 'meet-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);\n\nreturn [{\n  json: {\n    summary: `Call: ${data.prospect_name} — ${data.company}`,\n    description: `Sales call with ${data.prospect_name} (${data.title}) at ${data.company}.\\n\\nPain Point: ${data.pain_point}\\nRelevance Score: ${data.relevance_score}/10`,\n    start: startDate.toISOString(),\n    end: endDate.toISOString(),\n    attendee_email: data.prospect_email,\n    prospect_name: data.prospect_name,\n    company: data.company,\n    request_id: requestId\n  }\n}];"
+      },
+      "id": "prepare-event",
+      "name": "Prepare Calendar Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+        "authentication": "oAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"summary\": \"{{ $json.summary }}\",\n  \"description\": \"{{ $json.description }}\",\n  \"start\": {\"dateTime\": \"{{ $json.start }}\", \"timeZone\": \"Asia/Kolkata\"},\n  \"end\": {\"dateTime\": \"{{ $json.end }}\", \"timeZone\": \"Asia/Kolkata\"},\n  \"attendees\": [{\"email\": \"{{ $json.attendee_email }}\"}],\n  \"conferenceData\": {\n    \"createRequest\": {\n      \"requestId\": \"{{ $json.request_id }}\",\n      \"conferenceSolutionKey\": {\"type\": \"hangoutsMeet\"}\n    }\n  },\n  \"reminders\": {\"useDefault\": false, \"overrides\": [{\"method\": \"email\", \"minutes\": 30}, {\"method\": \"popup\", \"minutes\": 10}]}\n}"
+      },
+      "id": "create-event",
+      "name": "Google Calendar — Create with Meet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {"oAuth2Api": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"dealstage\":\"Meeting Scheduled\"}}"
+      },
+      "id": "hubspot-update",
+      "name": "HubSpot — Update to Meeting Scheduled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.OWNER_EMAIL}}",
+        "subject": "=📅 Meeting Booked: {{ $('Prepare Calendar Event').item.json.prospect_name }} — {{ $('Prepare Calendar Event').item.json.company }}",
+        "message": "=Meeting scheduled!\n\nProspect: {{ $('Prepare Calendar Event').item.json.prospect_name }}\nCompany: {{ $('Prepare Calendar Event').item.json.company }}\nTime: {{ $('Prepare Calendar Event').item.json.start }}\nMeet Link: {{ $('Google Calendar — Create with Meet').item.json.hangoutLink }}\n\nCalendar event created with Google Meet link. Invitation sent to prospect."
+      },
+      "id": "notify",
+      "name": "Notify — Meeting Booked",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [880, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    }
+  ],
+  "connections": {
+    "Webhook — Book Meeting": {"main": [[{"node": "Prepare Calendar Event", "type": "main", "index": 0}]]},
+    "Prepare Calendar Event": {"main": [[{"node": "Google Calendar — Create with Meet", "type": "main", "index": 0}]]},
+    "Google Calendar — Create with Meet": {"main": [[{"node": "HubSpot — Update to Meeting Scheduled", "type": "main", "index": 0}]]},
+    "HubSpot — Update to Meeting Scheduled": {"main": [[{"node": "Notify — Meeting Booked", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveExecutionProgress": true},
+  "tags": [{"name": "sales-automation"}, {"name": "meetings"}]
+}

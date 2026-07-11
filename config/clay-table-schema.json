@@ -1,0 +1,165 @@
+{
+  "table_name": "Sales Pipeline — Lead Enrichment",
+  "data_source": "webhook",
+  "webhook_notes": "Receives leads from n8n Workflow 01 (Apollo → Clay)",
+  "columns": [
+    {
+      "name": "First Name",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "first_name"
+    },
+    {
+      "name": "Last Name",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "last_name"
+    },
+    {
+      "name": "Email",
+      "type": "email",
+      "source": "webhook_input",
+      "mapping": "email"
+    },
+    {
+      "name": "Title",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "title"
+    },
+    {
+      "name": "Company",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "organization_name"
+    },
+    {
+      "name": "Company URL",
+      "type": "url",
+      "source": "webhook_input",
+      "mapping": "organization_website_url"
+    },
+    {
+      "name": "LinkedIn URL",
+      "type": "url",
+      "source": "webhook_input",
+      "mapping": "linkedin_url"
+    },
+    {
+      "name": "Company Size",
+      "type": "number",
+      "source": "webhook_input",
+      "mapping": "organization_num_employees"
+    },
+    {
+      "name": "Industry",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "organization_industry"
+    },
+    {
+      "name": "Company Description",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "organization_short_description"
+    },
+    {
+      "name": "Country",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "organization_country"
+    },
+    {
+      "name": "Funding Stage",
+      "type": "text",
+      "source": "webhook_input",
+      "mapping": "organization_latest_funding_stage"
+    },
+    {
+      "name": "Company Enrichment",
+      "type": "enrichment",
+      "source": "clay_builtin",
+      "enrichment_provider": "Clearbit / Clay Company Enrichment",
+      "input_column": "Company URL",
+      "outputs": ["tech_stack", "employee_count_verified", "annual_revenue_estimate", "social_links"]
+    },
+    {
+      "name": "Recent News",
+      "type": "enrichment",
+      "source": "clay_builtin",
+      "enrichment_provider": "Clay Web Scraper / Google News",
+      "input_column": "Company",
+      "config": {
+        "search_query": "{{Company}} news OR announcement OR launch",
+        "max_results": 3,
+        "recency_days": 90
+      }
+    },
+    {
+      "name": "Tech Stack",
+      "type": "enrichment",
+      "source": "clay_builtin",
+      "enrichment_provider": "BuiltWith / Clay Tech Lookup",
+      "input_column": "Company URL"
+    },
+    {
+      "name": "LinkedIn Activity",
+      "type": "enrichment",
+      "source": "clay_builtin",
+      "enrichment_provider": "Clay LinkedIn Enrichment",
+      "input_column": "LinkedIn URL",
+      "outputs": ["recent_posts", "headline", "about_summary"]
+    },
+    {
+      "name": "Personalized Note",
+      "type": "ai_generated",
+      "source": "clay_ai_column",
+      "model": "gpt-4o",
+      "prompt_file": "../prompts/clay-enrichment.md",
+      "input_columns": ["First Name", "Last Name", "Title", "Company", "Company URL", "Industry", "Company Size", "Recent News", "Tech Stack"],
+      "output_field": "personalized_note",
+      "only_run_if": "Email is not empty"
+    },
+    {
+      "name": "Pain Point Hypothesis",
+      "type": "ai_generated",
+      "source": "clay_ai_column",
+      "model": "gpt-4o",
+      "prompt_file": "../prompts/clay-enrichment.md",
+      "input_columns": ["Title", "Company", "Industry", "Company Description", "Recent News"],
+      "output_field": "pain_point"
+    },
+    {
+      "name": "Relevance Score",
+      "type": "ai_generated",
+      "source": "clay_ai_column",
+      "model": "gpt-4o",
+      "prompt_file": "../prompts/clay-enrichment.md",
+      "output_field": "relevance_score",
+      "notes": "Score 1-10. Only leads with score >= 7 are pushed to Instantly."
+    }
+  ],
+  "output_webhook": {
+    "type": "http_api",
+    "method": "POST",
+    "url": "{{N8N_WORKFLOW_02_WEBHOOK_URL}}",
+    "trigger": "auto_on_enrichment_complete",
+    "only_send_if": "Relevance Score >= 7",
+    "payload_mapping": {
+      "first_name": "{{First Name}}",
+      "last_name": "{{Last Name}}",
+      "email": "{{Email}}",
+      "title": "{{Title}}",
+      "company": "{{Company}}",
+      "company_url": "{{Company URL}}",
+      "linkedin_url": "{{LinkedIn URL}}",
+      "company_size": "{{Company Size}}",
+      "industry": "{{Industry}}",
+      "personalized_note": "{{Personalized Note}}",
+      "pain_point": "{{Pain Point Hypothesis}}",
+      "relevance_score": "{{Relevance Score}}",
+      "recent_news": "{{Recent News}}",
+      "tech_stack": "{{Tech Stack}}"
+    }
+  }
+}

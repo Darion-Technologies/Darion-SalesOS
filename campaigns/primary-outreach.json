@@ -1,0 +1,91 @@
+{
+  "campaign": {
+    "name": "Q3-2026-Primary-Outreach",
+    "status": "draft",
+    "description": "Primary AI-personalized outreach campaign targeting decision-makers identified by Apollo and enriched by Clay",
+    "sending_account": "{{YOUR_GMAIL_ADDRESS}}",
+    "sending_settings": {
+      "daily_limit": 30,
+      "ramp_up": {
+        "enabled": true,
+        "start_limit": 10,
+        "increase_per_day": 3,
+        "max_limit": 50
+      },
+      "email_gap_seconds": 120,
+      "random_delay_range_seconds": [60, 300],
+      "timezone": "Asia/Kolkata",
+      "sending_days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      "sending_hours": {
+        "start": "09:00",
+        "end": "17:00"
+      }
+    },
+    "behavior": {
+      "stop_on_reply": true,
+      "stop_on_auto_reply": true,
+      "stop_on_bounce": true,
+      "mark_as_read_on_reply": false
+    },
+    "tracking": {
+      "open_tracking": true,
+      "link_tracking": false,
+      "custom_tracking_domain": "{{YOUR_TRACKING_DOMAIN}}"
+    },
+    "warmup": {
+      "enabled": true,
+      "daily_warmup_limit": 40,
+      "warmup_increment": 2,
+      "reply_rate_target": 0.30,
+      "warmup_tag": "ai-sales-warmup"
+    },
+    "compliance": {
+      "unsubscribe_link": true,
+      "physical_address": "{{YOUR_BUSINESS_ADDRESS}}",
+      "sender_name": "{{YOUR_FULL_NAME}}",
+      "sender_title": "{{YOUR_TITLE}}"
+    }
+  },
+  "api_endpoints": {
+    "create_campaign": {
+      "method": "POST",
+      "url": "https://api.instantly.ai/api/v2/campaigns",
+      "headers": {
+        "Authorization": "Bearer {{INSTANTLY_API_KEY}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "name": "Q3-2026-Primary-Outreach",
+        "sending_account_id": "{{SENDING_ACCOUNT_ID}}"
+      }
+    },
+    "add_lead": {
+      "method": "POST",
+      "url": "https://api.instantly.ai/api/v2/leads",
+      "headers": {
+        "Authorization": "Bearer {{INSTANTLY_API_KEY}}",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "campaign": "{{CAMPAIGN_ID}}",
+        "email": "{{lead_email}}",
+        "first_name": "{{first_name}}",
+        "last_name": "{{last_name}}",
+        "company_name": "{{company}}",
+        "personalization": "{{personalized_note}}",
+        "custom_variables": {
+          "pain_point_topic": "{{pain_point}}",
+          "industry": "{{industry}}",
+          "company_size": "{{company_size}}"
+        }
+      }
+    },
+    "get_campaign_analytics": {
+      "method": "GET",
+      "url": "https://api.instantly.ai/api/v2/campaigns/{{CAMPAIGN_ID}}/analytics",
+      "headers": {
+        "Authorization": "Bearer {{INSTANTLY_API_KEY}}"
+      }
+    }
+  }
+}

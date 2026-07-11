@@ -1,0 +1,92 @@
+{
+  "name": "04 — Interested Lead → HubSpot + Meeting Request",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "interested-lead"},
+      "id": "webhook-interested",
+      "name": "Webhook — Interested Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat", "model": "gpt-4o",
+        "messages": {"values": [{"content": "=Generate a pre-call sales brief.\n\nProspect: {{ $json.body.first_name }} {{ $json.body.last_name }}, {{ $json.body.title }} at {{ $json.body.company }}\nIndustry: {{ $json.body.industry }}\nPain Point: {{ $json.body.pain_point }}\nEmail Thread: {{ $json.body.email_thread }}\n\nFormat as:\n## Lead Brief\n**Why They're a Fit:** ...\n**Key Talking Points:** 3 bullets\n**Potential Objections:** 2 bullets\n**Recommended Offering:** ...\n**Suggested Opening:** ..."}]},
+        "options": {"temperature": 0.4, "maxTokens": 500}
+      },
+      "id": "gpt-brief",
+      "name": "GPT — Generate Lead Brief",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [220, 0],
+      "credentials": {"openAiApi": {"id": "{{OPENAI_CREDENTIAL_ID}}", "name": "openai-api"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"hs_note_body\":\"{{ $('GPT — Generate Lead Brief').item.json.message.content }}\",\"hs_timestamp\":\"{{ new Date().toISOString() }}\"}}"
+      },
+      "id": "hubspot-add-note",
+      "name": "HubSpot — Add Brief as Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "resource": "chat", "model": "gpt-4o",
+        "messages": {"values": [{"content": "=Draft a brief, warm reply to this interested prospect. Suggest a 15-30 minute call.\n\nTheir reply: {{ $json.body.prospect_reply }}\nTheir name: {{ $json.body.first_name }}\n\nRules:\n- 2-3 sentences max\n- Match their tone\n- Suggest 2-3 time slots this week (IST timezone)\n- Be conversational, not salesy\n\nReturn ONLY the reply text."}]},
+        "options": {"temperature": 0.6, "maxTokens": 150}
+      },
+      "id": "gpt-draft-reply",
+      "name": "GPT — Draft Meeting Reply",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [660, 0],
+      "credentials": {"openAiApi": {"id": "{{OPENAI_CREDENTIAL_ID}}", "name": "openai-api"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.body.email }}",
+        "subject": "=Re: {{ $json.body.original_subject }}",
+        "message": "={{ $('GPT — Draft Meeting Reply').item.json.message.content }}\n\nBest,\n{{YOUR_NAME}}",
+        "options": {"replyToMessageId": "={{ $json.body.message_id }}"}
+      },
+      "id": "gmail-send-reply",
+      "name": "Gmail — Send Meeting Request",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [880, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.OWNER_EMAIL}}",
+        "subject": "=⭐ Interested Lead: {{ $json.body.first_name }} at {{ $json.body.company }}",
+        "message": "=Lead Brief:\n{{ $('GPT — Generate Lead Brief').item.json.message.content }}\n\nReply Sent:\n{{ $('GPT — Draft Meeting Reply').item.json.message.content }}"
+      },
+      "id": "notify",
+      "name": "Notify — Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1100, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    }
+  ],
+  "connections": {
+    "Webhook — Interested Lead": {"main": [[{"node": "GPT — Generate Lead Brief", "type": "main", "index": 0}]]},
+    "GPT — Generate Lead Brief": {"main": [[{"node": "HubSpot — Add Brief as Note", "type": "main", "index": 0}]]},
+    "HubSpot — Add Brief as Note": {"main": [[{"node": "GPT — Draft Meeting Reply", "type": "main", "index": 0}]]},
+    "GPT — Draft Meeting Reply": {"main": [[{"node": "Gmail — Send Meeting Request", "type": "main", "index": 0}]]},
+    "Gmail — Send Meeting Request": {"main": [[{"node": "Notify — Owner", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveExecutionProgress": true},
+  "tags": [{"name": "sales-automation"}]
+}

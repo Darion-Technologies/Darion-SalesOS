@@ -1,0 +1,137 @@
+{
+  "name": "03 — Gmail Reply → AI Classification",
+  "nodes": [
+    {
+      "parameters": {"pollTimes": {"item": [{"mode": "everyMinute", "minute": 2}]}, "simple": false, "filters": {"includeSpamTrash": false}},
+      "id": "gmail-trigger",
+      "name": "Gmail — New Reply",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [{"leftValue": "={{ $json.headers?.['In-Reply-To'] }}", "rightValue": "", "operator": {"type": "string", "operation": "isNotEmpty"}}],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-replies",
+      "name": "Filter — Is Reply",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o",
+        "messages": {"values": [{"content": "=Classify this email reply into: INTERESTED, NOT_INTERESTED, OUT_OF_OFFICE, REFERRAL, OBJECTION, NEEDS_REVIEW, or SPAM.\n\nSubject: {{ $json.subject }}\nFrom: {{ $json.from }}\nBody:\n{{ $json.snippet }}\n\nRespond JSON only:\n{\"classification\":\"...\",\"confidence\":0.0,\"suggested_action\":\"...\",\"draft_reply\":\"...\",\"urgency\":\"high|medium|low\"}"}]},
+        "options": {"temperature": 0.2, "maxTokens": 300}
+      },
+      "id": "gpt-classify",
+      "name": "GPT — Classify Reply",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [440, 0],
+      "credentials": {"openAiApi": {"id": "{{OPENAI_CREDENTIAL_ID}}", "name": "openai-api"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.message?.content || '{}';\ntry {\n  const parsed = JSON.parse(raw);\n  return [{ json: { ...parsed, original_email: $('Gmail — New Reply').item.json } }];\n} catch(e) {\n  return [{ json: { classification: 'NEEDS_REVIEW', confidence: 0, suggested_action: 'Manual review — GPT parse failed', draft_reply: null, urgency: 'medium', original_email: $('Gmail — New Reply').item.json } }];\n}"
+      },
+      "id": "parse-classification",
+      "name": "Parse GPT Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {"outputIndex": 0, "conditions": {"conditions": [{"leftValue": "={{ $json.classification }}", "rightValue": "INTERESTED", "operator": {"type": "string", "operation": "equals"}}]}},
+            {"outputIndex": 1, "conditions": {"conditions": [{"leftValue": "={{ $json.classification }}", "rightValue": "NOT_INTERESTED", "operator": {"type": "string", "operation": "equals"}}]}},
+            {"outputIndex": 2, "conditions": {"conditions": [{"leftValue": "={{ $json.classification }}", "rightValue": "OBJECTION", "operator": {"type": "string", "operation": "equals"}}]}},
+            {"outputIndex": 3, "conditions": {"conditions": [{"leftValue": "={{ $json.classification }}", "rightValue": "REFERRAL", "operator": {"type": "string", "operation": "equals"}}]}},
+            {"outputIndex": 4, "conditions": {"conditions": [{"leftValue": "={{ $json.classification }}", "rightValue": "OUT_OF_OFFICE", "operator": {"type": "string", "operation": "equals"}}]}}
+          ],
+          "fallbackOutput": 5
+        }
+      },
+      "id": "switch-classification",
+      "name": "Switch — Route by Classification",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/deals/{{ $json.original_email.from }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"dealstage\":\"Replied — Interested\",\"reply_classification\":\"interested\"}}"
+      },
+      "id": "hubspot-interested",
+      "name": "HubSpot — Mark Interested",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -200],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/deals/{{ $json.original_email.from }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"dealstage\":\"Closed Lost\",\"reply_classification\":\"not_interested\"}}"
+      },
+      "id": "hubspot-lost",
+      "name": "HubSpot — Mark Lost",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -50],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.OWNER_EMAIL}}",
+        "subject": "=🔔 New Reply from {{ $json.original_email.from }} — {{ $json.classification }}",
+        "message": "=Classification: {{ $json.classification }} ({{ $json.confidence }})\nUrgency: {{ $json.urgency }}\n\nOriginal Reply:\n{{ $json.original_email.snippet }}\n\nSuggested Action: {{ $json.suggested_action }}\n\nDraft Reply:\n{{ $json.draft_reply }}"
+      },
+      "id": "notify-owner",
+      "name": "Notify — Email to Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1320, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    }
+  ],
+  "connections": {
+    "Gmail — New Reply": {"main": [[{"node": "Filter — Is Reply", "type": "main", "index": 0}]]},
+    "Filter — Is Reply": {"main": [[{"node": "GPT — Classify Reply", "type": "main", "index": 0}]]},
+    "GPT — Classify Reply": {"main": [[{"node": "Parse GPT Response", "type": "main", "index": 0}]]},
+    "Parse GPT Response": {"main": [[{"node": "Switch — Route by Classification", "type": "main", "index": 0}]]},
+    "Switch — Route by Classification": {
+      "main": [
+        [{"node": "HubSpot — Mark Interested", "type": "main", "index": 0}],
+        [{"node": "HubSpot — Mark Lost", "type": "main", "index": 0}],
+        [{"node": "Notify — Email to Owner", "type": "main", "index": 0}],
+        [{"node": "Notify — Email to Owner", "type": "main", "index": 0}],
+        [{"node": "Notify — Email to Owner", "type": "main", "index": 0}],
+        [{"node": "Notify — Email to Owner", "type": "main", "index": 0}]
+      ]
+    },
+    "HubSpot — Mark Interested": {"main": [[{"node": "Notify — Email to Owner", "type": "main", "index": 0}]]},
+    "HubSpot — Mark Lost": {"main": [[{"node": "Notify — Email to Owner", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveExecutionProgress": true},
+  "tags": [{"name": "sales-automation"}, {"name": "ai-classification"}]
+}

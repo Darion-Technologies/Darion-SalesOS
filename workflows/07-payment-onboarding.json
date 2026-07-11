@@ -1,0 +1,119 @@
+{
+  "name": "07 — Payment Received → Onboarding",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "razorpay-payment-webhook"},
+      "id": "webhook-razorpay",
+      "name": "Webhook — Razorpay Payment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.body.event }}", "rightValue": "payment_link.paid", "operator": {"type": "string", "operation": "equals"}}
+          ]
+        }
+      },
+      "id": "filter-paid",
+      "name": "Filter — Payment Captured",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $input.first().json.body.payload;\nconst paymentLink = payload.payment_link?.entity || {};\nconst payment = payload.payment?.entity || {};\n\nreturn [{\n  json: {\n    deal_id: paymentLink.notes?.deal_id || '',\n    client_name: paymentLink.customer?.name || payment.notes?.client_name || '',\n    client_email: paymentLink.customer?.email || payment.email || '',\n    amount: (payment.amount || paymentLink.amount || 0) / 100,\n    currency: payment.currency || 'INR',\n    payment_id: payment.id || '',\n    payment_link_id: paymentLink.id || '',\n    paid_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract-data",
+      "name": "Extract Payment Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.hubapi.com/crm/v3/objects/deals/{{ $json.deal_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"dealstage\":\"Closed Won\",\"payment_status\":\"paid\",\"razorpay_payment_id\":\"{{ $json.payment_id }}\"}}"
+      },
+      "id": "hubspot-closed-won",
+      "name": "HubSpot — Mark Closed Won",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "resource": "chat", "model": "gpt-4o",
+        "messages": {"values": [{"content": "=Write a warm, professional onboarding email for a new client.\n\nClient Name: {{ $json.client_name }}\nService Purchased: The service they paid for\nAmount Paid: ₹{{ $json.amount }}\n\nThe email should:\n1. Thank them for their trust\n2. Outline what happens next (3-4 clear steps)\n3. Mention a kickoff call will be scheduled\n4. Provide a way to reach us\n\nTone: Warm, professional, excited but not over-the-top.\nMax 150 words. Plain text."}]},
+        "options": {"temperature": 0.5, "maxTokens": 250}
+      },
+      "id": "gpt-onboarding",
+      "name": "GPT — Generate Onboarding Email",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [880, 0],
+      "credentials": {"openAiApi": {"id": "{{OPENAI_CREDENTIAL_ID}}", "name": "openai-api"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Extract Payment Data').item.json.client_email }}",
+        "subject": "Welcome aboard! Here's what happens next",
+        "message": "={{ $('GPT — Generate Onboarding Email').item.json.message.content }}\n\nBest regards,\n{{YOUR_NAME}}"
+      },
+      "id": "gmail-onboarding",
+      "name": "Gmail — Send Onboarding Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1100, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+        "authentication": "oAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"summary\": \"Kickoff Call: {{ $('Extract Payment Data').item.json.client_name }}\",\n  \"description\": \"Onboarding kickoff call. Payment received: ₹{{ $('Extract Payment Data').item.json.amount }}\",\n  \"start\": {\"dateTime\": \"{{ new Date(Date.now() + 3*24*60*60*1000).toISOString() }}\", \"timeZone\": \"Asia/Kolkata\"},\n  \"end\": {\"dateTime\": \"{{ new Date(Date.now() + 3*24*60*60*1000 + 45*60*1000).toISOString() }}\", \"timeZone\": \"Asia/Kolkata\"},\n  \"attendees\": [{\"email\": \"{{ $('Extract Payment Data').item.json.client_email }}\"}],\n  \"conferenceData\": {\"createRequest\": {\"requestId\": \"kickoff-{{ Date.now() }}\", \"conferenceSolutionKey\": {\"type\": \"hangoutsMeet\"}}}\n}"
+      },
+      "id": "schedule-kickoff",
+      "name": "Google Calendar — Schedule Kickoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 150],
+      "credentials": {"oAuth2Api": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.OWNER_EMAIL}}",
+        "subject": "=🎉 Payment Received! ₹{{ $('Extract Payment Data').item.json.amount }} from {{ $('Extract Payment Data').item.json.client_name }}",
+        "message": "=PAYMENT RECEIVED!\n\nClient: {{ $('Extract Payment Data').item.json.client_name }}\nEmail: {{ $('Extract Payment Data').item.json.client_email }}\nAmount: ₹{{ $('Extract Payment Data').item.json.amount }}\nPayment ID: {{ $('Extract Payment Data').item.json.payment_id }}\n\nActions taken:\n✅ HubSpot deal marked as Closed Won\n✅ Onboarding email sent to client\n✅ Kickoff call scheduled (3 days from now)"
+      },
+      "id": "notify",
+      "name": "Notify — Payment Received 🎉",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1320, 0],
+      "credentials": {"gmailOAuth2": {"id": "{{GOOGLE_CREDENTIAL_ID}}", "name": "google-oauth"}}
+    }
+  ],
+  "connections": {
+    "Webhook — Razorpay Payment": {"main": [[{"node": "Filter — Payment Captured", "type": "main", "index": 0}]]},
+    "Filter — Payment Captured": {"main": [[{"node": "Extract Payment Data", "type": "main", "index": 0}]]},
+    "Extract Payment Data": {"main": [[{"node": "HubSpot — Mark Closed Won", "type": "main", "index": 0}]]},
+    "HubSpot — Mark Closed Won": {"main": [[{"node": "GPT — Generate Onboarding Email", "type": "main", "index": 0}]]},
+    "GPT — Generate Onboarding Email": {"main": [[{"node": "Gmail — Send Onboarding Email", "type": "main", "index": 0}, {"node": "Google Calendar — Schedule Kickoff", "type": "main", "index": 0}]]},
+    "Gmail — Send Onboarding Email": {"main": [[{"node": "Notify — Payment Received 🎉", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveExecutionProgress": true},
+  "tags": [{"name": "sales-automation"}, {"name": "payments"}, {"name": "onboarding"}]
+}

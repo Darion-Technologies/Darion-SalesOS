@@ -1,0 +1,111 @@
+{
+  "name": "02 — Clay → Instantly (Enriched Leads → Campaign)",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "clay-enriched-lead", "responseMode": "responseNode"},
+      "id": "webhook-from-clay",
+      "name": "Webhook — Receive from Clay",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.body.relevance_score }}", "rightValue": 7, "operator": {"type": "number", "operation": "gte"}},
+            {"leftValue": "={{ $json.body.email }}", "rightValue": "", "operator": {"type": "string", "operation": "isNotEmpty"}}
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-qualified",
+      "name": "Filter — Score ≥ 7",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o",
+        "messages": {"values": [{"content": "=You are a B2B cold email writer. Max 75 words. No exclamation marks. Reference ONE specific thing about the prospect. Low-friction CTA.\n\nPROSPECT: {{ $json.body.first_name }}, {{ $json.body.title }} at {{ $json.body.company }} ({{ $json.body.industry }})\nNOTE: {{ $json.body.personalized_note }}\nPAIN: {{ $json.body.pain_point }}\n\nReturn ONLY the email body."}]},
+        "options": {"temperature": 0.7, "maxTokens": 150}
+      },
+      "id": "gpt-personalize",
+      "name": "GPT — Personalize Email",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.6,
+      "position": [440, 0],
+      "credentials": {"openAiApi": {"id": "{{OPENAI_CREDENTIAL_ID}}", "name": "openai-api"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.instantly.ai/api/v2/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"campaign\":\"{{INSTANTLY_CAMPAIGN_ID}}\",\"email\":\"{{ $('Webhook — Receive from Clay').item.json.body.email }}\",\"first_name\":\"{{ $('Webhook — Receive from Clay').item.json.body.first_name }}\",\"last_name\":\"{{ $('Webhook — Receive from Clay').item.json.body.last_name }}\",\"company_name\":\"{{ $('Webhook — Receive from Clay').item.json.body.company }}\",\"custom_variables\":{\"pain_point_topic\":\"{{ $('Webhook — Receive from Clay').item.json.body.pain_point }}\",\"ai_email_body\":\"{{ $('GPT — Personalize Email').item.json.message.content }}\"}}"
+      },
+      "id": "instantly-add-lead",
+      "name": "Instantly — Add Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {"httpHeaderAuth": {"id": "{{INSTANTLY_CREDENTIAL_ID}}", "name": "instantly-api"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"email\":\"{{ $('Webhook — Receive from Clay').item.json.body.email }}\",\"firstname\":\"{{ $('Webhook — Receive from Clay').item.json.body.first_name }}\",\"lastname\":\"{{ $('Webhook — Receive from Clay').item.json.body.last_name }}\",\"jobtitle\":\"{{ $('Webhook — Receive from Clay').item.json.body.title }}\",\"company\":\"{{ $('Webhook — Receive from Clay').item.json.body.company }}\",\"ai_relevance_score\":\"{{ $('Webhook — Receive from Clay').item.json.body.relevance_score }}\",\"lead_source\":\"apollo\"}}"
+      },
+      "id": "hubspot-contact",
+      "name": "HubSpot — Create Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -80],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"properties\":{\"dealname\":\"{{ $('Webhook — Receive from Clay').item.json.body.first_name }} — {{ $('Webhook — Receive from Clay').item.json.body.company }}\",\"dealstage\":\"Contacted\",\"pipeline\":\"AI Sales Pipeline\",\"amount\":\"1000\",\"payment_status\":\"not_sent\"}}"
+      },
+      "id": "hubspot-deal",
+      "name": "HubSpot — Create Deal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 80],
+      "credentials": {"httpHeaderAuth": {"id": "{{HUBSPOT_CREDENTIAL_ID}}", "name": "hubspot-private-app"}}
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={\"status\":\"success\"}"},
+      "id": "respond",
+      "name": "Respond — Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 0]
+    }
+  ],
+  "connections": {
+    "Webhook — Receive from Clay": {"main": [[{"node": "Filter — Score ≥ 7", "type": "main", "index": 0}]]},
+    "Filter — Score ≥ 7": {"main": [[{"node": "GPT — Personalize Email", "type": "main", "index": 0}]]},
+    "GPT — Personalize Email": {"main": [[{"node": "Instantly — Add Lead", "type": "main", "index": 0}]]},
+    "Instantly — Add Lead": {"main": [[{"node": "HubSpot — Create Contact", "type": "main", "index": 0}, {"node": "HubSpot — Create Deal", "type": "main", "index": 0}]]},
+    "HubSpot — Create Contact": {"main": [[{"node": "Respond — Success", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "saveExecutionProgress": true},
+  "tags": [{"name": "sales-automation"}]
+}
